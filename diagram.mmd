@@ -1,0 +1,85 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a90d9', 'primaryTextColor': '#fff', 'primaryBorderColor': '#2d5a8a', 'lineColor': '#5a5a5a', 'secondaryColor': '#f5f5f5', 'tertiaryColor': '#e8f4e8'}}}%%
+flowchart TB
+    subgraph User["👤 User Interface"]
+        Q[/"User Query"/]
+    end
+
+    subgraph Manager["🎯 Manager Agent (gpt-4o)"]
+        direction TB
+        M[Manager Router]
+        V{{"Claim ID\nValidation"}}
+        R{{"Query Type\nRouting"}}
+        M --> V
+        V --> R
+    end
+
+    subgraph Experts["🔧 Expert Agents (gpt-4o-mini)"]
+        direction LR
+        subgraph SE["Summary Expert"]
+            SE1[SummaryIndex]
+            SE2[tree_summarize\nMapReduce]
+        end
+        subgraph NE["Needle Expert"]
+            NE1[VectorStoreIndex]
+            NE2[AutoMerging\nRetriever]
+        end
+    end
+
+    subgraph MCP["🔌 MCP Tools"]
+        direction TB
+        T1["validate_policy_limit()"]
+        T2["calculate_date_difference()"]
+    end
+
+    subgraph Storage["💾 Data Layer"]
+        direction TB
+        subgraph Chroma["ChromaDB"]
+            C1["Leaf Nodes\n(128 tokens)"]
+            C2["Intermediate\n(512 tokens)"]
+            C3["Root Nodes\n(2048 tokens)"]
+        end
+        subgraph Docs["Claim Documents"]
+            D1["claim001.md\nCLM-89921"]
+            D2["claim002.md\nCLM-44217-PD"]
+            D3["claim003.md\nCLM-77182-CM"]
+        end
+    end
+
+    subgraph Meta["📋 Metadata"]
+        M1["claim_id"]
+        M2["policy_holder"]
+    end
+
+    Q --> M
+    R -->|"High-level\nQuestions"| SE
+    R -->|"Specific\nFacts"| NE
+    R -->|"Policy\nValidation"| MCP
+
+    SE1 --> SE2
+    NE1 --> NE2
+    
+    NE2 --> Chroma
+    C1 -.->|"auto-merge"| C2
+    C2 -.->|"auto-merge"| C3
+    
+    Docs -->|"HierarchicalNodeParser"| Chroma
+    Docs -->|"LLM Extraction"| Meta
+    Meta --> Chroma
+
+    SE --> |Response| M
+    NE --> |Response| M
+    MCP --> |Validation Result| M
+    M --> |"Final Answer"| Q
+
+    classDef managerStyle fill:#4a90d9,stroke:#2d5a8a,color:#fff
+    classDef expertStyle fill:#5cb85c,stroke:#4cae4c,color:#fff
+    classDef mcpStyle fill:#f0ad4e,stroke:#eea236,color:#fff
+    classDef storageStyle fill:#5bc0de,stroke:#46b8da,color:#fff
+    classDef metaStyle fill:#d9534f,stroke:#d43f3a,color:#fff
+
+    class M,V,R managerStyle
+    class SE1,SE2,NE1,NE2 expertStyle
+    class T1,T2 mcpStyle
+    class C1,C2,C3,D1,D2,D3 storageStyle
+    class M1,M2 metaStyle
+

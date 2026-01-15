@@ -1,0 +1,96 @@
+name: Agent Evaluation Tests
+
+on:
+  # Manual trigger - recommended for cost control
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Test type to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - code-based
+          - model-based
+      max_cases:
+        description: 'Max test cases to run (for cost control)'
+        required: false
+        default: '5'
+        type: string
+
+  # Optional: Run on PR to master (can be expensive)
+  # pull_request:
+  #   branches: [master]
+
+jobs:
+  agent-evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: |
+          uv sync --extra test
+
+      - name: Run Code-Based Tests
+        if: ${{ inputs.test_type == 'all' || inputs.test_type == 'code-based' }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          uv run pytest tests/test_code_based.py -v -s --tb=short 2>&1 | tee -a test_output.txt
+
+      - name: Run Model-Based Tests
+        if: ${{ inputs.test_type == 'all' || inputs.test_type == 'model-based' }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          uv run pytest tests/test_model_based.py -v -s --tb=short 2>&1 | tee -a test_output.txt
+
+      - name: Analyze Test Results
+        if: always()
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -f test_output.txt ]; then
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "📊 GENERATING TEST ANALYSIS REPORT..."
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            uv run python tests/analyze_results.py test_output.txt "Agent Evaluation Tests" | tee analysis_report.txt
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "📋 FINAL ANALYSIS REPORT"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            cat analysis_report.txt
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          else
+            echo "No test output found to analyze"
+          fi
+
+      - name: Upload evaluation results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-results
+          path: |
+            test_output.txt
+            analysis_report.txt
+            evaluation_results.json
+            evaluation_results.csv
+            human_eval_results/
+          if-no-files-found: ignore

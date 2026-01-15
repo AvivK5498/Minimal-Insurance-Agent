@@ -1,0 +1,133 @@
+name: Extended Agent Evaluation
+
+on:
+  # Manual trigger only - extended tests are expensive
+  workflow_dispatch:
+    inputs:
+      test_suite:
+        description: 'Test suite to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - edge-cases
+          - stress-test
+          - comprehensive-model
+          - adversarial
+      timeout_minutes:
+        description: 'Timeout per test (minutes)'
+        required: false
+        default: '5'
+        type: string
+
+# Note: Tests run sequentially (no parallel workers) because ChromaDB
+# persistent storage doesn't support concurrent access from multiple processes.
+
+jobs:
+  extended-evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: |
+          uv sync --extra test
+
+      - name: Run Edge Case Tests
+        if: ${{ inputs.test_suite == 'all' || inputs.test_suite == 'edge-cases' }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          uv run pytest tests/test_edge_cases.py -v -s --tb=short \
+            --timeout=${{ inputs.timeout_minutes }}00 2>&1 | tee -a test_output.txt
+
+      - name: Run Stress Tests
+        if: ${{ inputs.test_suite == 'all' || inputs.test_suite == 'stress-test' }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          uv run pytest tests/test_stress.py -v -s --tb=short \
+            --timeout=${{ inputs.timeout_minutes }}00 2>&1 | tee -a test_output.txt
+
+      - name: Run Comprehensive Model-Based Tests
+        if: ${{ inputs.test_suite == 'all' || inputs.test_suite == 'comprehensive-model' }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          uv run pytest tests/test_comprehensive_model.py -v -s --tb=short \
+            --timeout=${{ inputs.timeout_minutes }}00 2>&1 | tee -a test_output.txt
+
+      - name: Run Adversarial Tests
+        if: ${{ inputs.test_suite == 'all' || inputs.test_suite == 'adversarial' }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          uv run pytest tests/test_adversarial.py -v -s --tb=short \
+            --timeout=${{ inputs.timeout_minutes }}00 2>&1 | tee -a test_output.txt
+
+      - name: Analyze Test Results
+        if: always()
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -f test_output.txt ]; then
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "📊 GENERATING TEST ANALYSIS REPORT..."
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            uv run python tests/analyze_results.py test_output.txt "Extended Agent Evaluation" | tee analysis_report.txt
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "📋 FINAL ANALYSIS REPORT"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            cat analysis_report.txt
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          else
+            echo "No test output found to analyze"
+          fi
+
+      - name: Generate Extended Report
+        if: always()
+        run: |
+          echo "## Extended Evaluation Summary" > extended_report.md
+          echo "Run time: $(date)" >> extended_report.md
+          echo "Test suite: ${{ inputs.test_suite }}" >> extended_report.md
+          echo "" >> extended_report.md
+          if [ -f analysis_report.txt ]; then
+            echo "### Analysis" >> extended_report.md
+            cat analysis_report.txt >> extended_report.md
+            echo "" >> extended_report.md
+          fi
+          if [ -f evaluation_results.json ]; then
+            echo "### Raw Results" >> extended_report.md
+            cat evaluation_results.json >> extended_report.md
+          fi
+
+      - name: Upload extended results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extended-evaluation-results
+          path: |
+            test_output.txt
+            analysis_report.txt
+            extended_report.md
+            evaluation_results.json
+            evaluation_results.csv
+            human_eval_results/
+          if-no-files-found: ignore
